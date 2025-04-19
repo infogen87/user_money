@@ -1,5 +1,6 @@
 from schemas.user import User, UserDb
 from schemas.account import AccountDb
+from schemas.transaction import Transaction
 
 
 def user_serializer(user) -> User:
@@ -37,3 +38,15 @@ def account_serializer(account) -> AccountDb:
         "account_type": account.get("account_type"),
     }
     return AccountDb(**account_dict)
+
+
+
+def transaction_serializer(transaction) -> Transaction:
+    transaction_dict = {
+        "id": str(transaction["_id"]),
+        "account_id": transaction.get("account_id"),
+        "amount": transaction["amount"],
+        "transaction_type": transaction["transaction_type"],
+        "date": transaction["date"].isoformat(),
+    }
+    return Transaction(**transaction_dict)

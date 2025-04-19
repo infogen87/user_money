@@ -14,8 +14,16 @@ class TransactionBase(BaseModel):
     amount: Decimal
 
 
-class DepositTransactionPayload(BaseModel):
+class TransactionPayload(BaseModel):
     amount: Decimal
+
+
+class Transaction(BaseModel):
+    id: str
+    account_id: str
+    amount: Decimal
+    transaction_type: str
+    date: datetime
 
 
 class DepositTransaction(BaseModel):
@@ -25,9 +33,7 @@ class DepositTransaction(BaseModel):
     date: datetime = datetime.now()
 
 
-class WithdrawalTransactinPayload(BaseModel):
-    amount: Decimal
-
+# class WithdrawTransaction(T)
 
 
 class TransactionDb(TransactionBase):

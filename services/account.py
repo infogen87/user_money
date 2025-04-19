@@ -2,13 +2,12 @@ from datetime import datetime
 from decimal import Decimal
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
-from schemas.account import AccountCreatePayload, AccountCreate, Account
-from database import accounts_collection
-from schemas.transaction import DepositTransactionPayload, WithdrawalTransactinPayload
+from schemas.account import AccountCreatePayload, Account
+from database import accounts_collection, transactions_collection
+from schemas.transaction import TransactionType
 from schemas.user import User
-from serializers import account_serializer
+from serializers import account_serializer, transaction_serializer
 from bson.objectid import ObjectId
-# from bson import ObjectId #you added this
 
 
 class AccountService:
@@ -23,7 +22,9 @@ class AccountService:
             created_at=datetime.now(),
             updated_at=datetime.now()
         )
-        account_id = accounts_collection.insert_one(jsonable_encoder(account_with_defaults)).inserted_id
+        account_id = accounts_collection.insert_one(
+            jsonable_encoder(account_with_defaults)
+        ).inserted_id
         account = accounts_collection.find_one({"_id": account_id})
         return account_serializer(account)
 
@@ -31,48 +32,73 @@ class AccountService:
     @staticmethod
     def get_account(user: User):
         account = accounts_collection.find_one({"user_id": user.id})
+        if not account:
+            raise HTTPException(status_code=400, detail="User does not have an account")
         return account_serializer(account)
-    
+
 
     @staticmethod
     def get_account_by_id(account_id: str):
         account = accounts_collection.find_one({"_id": ObjectId(account_id)})
+        if not account:
+            return None
         return account_serializer(account)
 
-    
+
     @staticmethod
-    def deposit_money(deposit_payload: DepositTransactionPayload, account_id):
-        account = AccountService.get_account_by_id(account_id)
-        if not account:
-            raise ValueError("Account not found")
+    def record_transaction(
+        account_id: str, amount: Decimal, transaction_type: TransactionType
+    ):
+        transaction = {
+            "account_id": account_id,
+            "amount": float(amount),
+            "transaction_type": transaction_type.value,
+            "date": datetime.now(),
+        }
+        result = transactions_collection.insert_one(transaction)
+        return transactions_collection.find_one({"_id": result.inserted_id})
 
-        old_balance = float(account.balance)
-        new_balance = old_balance + float(deposit_payload.amount)
-        
-       
-        accounts_collection.find_one_and_update(
-            {"_id": ObjectId(account.id)},
-            {"$set": {"balance": new_balance}}
-        )
-        
-        return "successful"
 
-    
     @staticmethod
-    def withdraw_money(withdrawal_payload: WithdrawalTransactinPayload, account_id):
-        account = AccountService.get_account_by_id(account_id)
+    def deposit_fund(account_id: str, amount: Decimal):
+        account = AccountService.get_account_by_id(account_id).model_dump()
         if not account:
-            raise ValueError("Account not found")
+            raise HTTPException(status_code=404, detail="Account not found")
+        old_balance = Decimal(str(account.get("balance", 0.0)))
+        new_balance = old_balance + amount
 
-        
-        new_balance = float(account.balance) - float(withdrawal_payload.amount)
-
-        accounts_collection.find_one_and_update(
+        account = accounts_collection.find_one_and_update(
             {"_id": ObjectId(account_id)},
-            {"$set": {"balance": new_balance}}
+            {"$set": {"balance": float(new_balance), "updated_at": datetime.now()}},
         )
+        transaction = AccountService.record_transaction(
+            account_id, amount, TransactionType.credit
+        )
+        return transaction_serializer(transaction)
+    
 
-        return new_balance
+    @staticmethod
+    def withdraw_fund(account_id: str, amount: Decimal, owner_id: str):
+        
+        account = AccountService.get_account_by_id(account_id)
+        if account.user_id != owner_id:
+            raise HTTPException(status_code=403, detail="this account doesnt belong to you")
+        account = account.model_dump()
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        acct_balance = Decimal(str(account.get("balance", 0.0)))
+        if acct_balance < amount:
+            raise HTTPException(status_code=404, detail="insufficient funds")
+        new_balance = acct_balance - amount
+
+        account = accounts_collection.find_one_and_update(
+            {"_id": ObjectId(account_id)},
+            {"$set": {"balance": float(new_balance), "updated_at": datetime.now()}},
+        )
+        transaction = AccountService.record_transaction(
+            account_id, amount, TransactionType.debit
+        )
+        return transaction_serializer(transaction)
 
 
 account_service = AccountService()

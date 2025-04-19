@@ -20,3 +20,4 @@ class UserCreate(UserBase):
 
 class User(UserBase):
     id: str
+

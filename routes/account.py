@@ -1,18 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Request
 
 from schemas.account import AccountCreatePayload
-from schemas.transaction import DepositTransactionPayload, WithdrawalTransactinPayload
+from schemas.transaction import TransactionPayload
 from services.account import account_service
 from deps import get_current_user
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
+limiter = Limiter(key_func=get_remote_address)
 
 account_router = APIRouter()
 
 
 @account_router.post("")
 def create_account(
-    account_data: AccountCreatePayload,
-    current_user=Depends(get_current_user)
+    account_data: AccountCreatePayload, current_user=Depends(get_current_user)
 ):
     new_account = account_service.create_account(account_data, current_user)
     return new_account
@@ -24,18 +26,16 @@ def get_account(current_user=Depends(get_current_user)):
     return account
 
 
-@account_router.post("/deposit")
-def transact(transaction: DepositTransactionPayload, current_user=Depends(get_current_user), account=Depends(get_account)):
+@account_router.post("/{account_id}/deposit")
+def deposit_fund(
+    account_id: str, payload: TransactionPayload, current_user=Depends(get_current_user)
+):
+    return account_service.deposit_fund(account_id, payload.amount)
 
-    return account_service.deposit_money(transaction, account.id)
 
-
-@account_router.post("/withdraw")
-def transact(transaction: WithdrawalTransactinPayload, current_user=Depends(get_current_user), account=Depends(get_account)):
-    if transaction.amount > account.balance:
-        raise HTTPException(status_code=422, detail="insufficient fund")
-    if transaction.amount <= 5:
-        raise HTTPException(status_code=422, detail="withdrawal amount is too low") 
-
-    new_balance = account_service.withdraw_money(transaction, account.id)
-    return {"message": "withdrawal successful", "new balance": f"{new_balance}"}
+@account_router.post("/{account_id}/withdraw")
+@limiter.limit("5/minute")
+def withdraw_fund(
+    account_id: str, payload: TransactionPayload, request: Request, current_user=Depends(get_current_user)
+):
+    return account_service.withdraw_fund(account_id, payload.amount, owner_id=current_user.id)
